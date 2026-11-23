@@ -6,15 +6,15 @@ const { getGuildConfig, saveGuildConfig } = require("../storage");
 function createWebServer(client) {
   const app = express();
   const sessionSecret = process.env.SESSION_SECRET;
-  const dashboardPassword = process.env.DASHBOARD_PASSWORD;
   const crypto = require("node:crypto");
+  const dashboardUrl = (process.env.DASHBOARD_URL || "").replace(/\\/+$/, "");
+  const allowedAdmins = new Set((process.env.OWNER_IDS || "").split(",").map(id => id.trim()).filter(Boolean));
+  const oauthStates = new Map();
+  if (!dashboardUrl) throw new Error("DASHBOARD_URL debe apuntar al dominio público del panel.");
+  if (!allowedAdmins.size) throw new Error("OWNER_IDS debe contener al menos un ID de usuario de Discord autorizado.");
   if (!sessionSecret || sessionSecret.length < 32) {
     throw new Error("SESSION_SECRET debe estar configurado en Render y tener al menos 32 caracteres.");
   }
-  if (!dashboardPassword || dashboardPassword.length < 16) {
-    throw new Error("DASHBOARD_PASSWORD debe estar configurado en Render y tener al menos 16 caracteres.");
-  }
-
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use((req, res, next) => {
@@ -34,7 +34,9 @@ function createWebServer(client) {
   }));
 
   function auth(req, res, next) {
-    if (!req.session?.admin) return res.status(401).json({ error: "Inicia sesión con la contraseña del panel." });
+    if (!req.session?.user?.id || !allowedAdmins.has(req.session.user.id)) {
+      return res.status(401).json({ error: "Inicia sesión con una cuenta de Discord autorizada." });
+    }
     next();
   }
   async function canManage(guild, userId, isDashboardAdmin = false) {
@@ -43,22 +45,40 @@ function createWebServer(client) {
     return Boolean(member && (member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild)));
   }
 
-  app.post("/auth/password", (req, res) => {
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
-    const now = Date.now();
-    const failure = loginFailures.get(ip);
-    if (failure && failure.blockedUntil > now) return res.status(429).json({ error: "Demasiados intentos. Espera 15 minutos." });
-    const supplied = Buffer.from(String(req.body?.password || ""));
-    const expected = Buffer.from(dashboardPassword);
-    const valid = supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
-    if (!valid) {
-      const attempts = (failure?.attempts || 0) + 1;
-      loginFailures.set(ip, { attempts, blockedUntil: attempts >= 5 ? now + 15 * 60 * 1000 : 0 });
-      return res.status(401).json({ error: attempts >= 5 ? "Demasiados intentos. Espera 15 minutos." : "Contraseña incorrecta." });
+  const redirectUri = `${dashboardUrl}/auth/callback`;
+  app.get("/auth/discord", (req, res) => {
+    const state = crypto.randomBytes(24).toString("hex");
+    oauthStates.set(state, Date.now() + 10 * 60 * 1000);
+    for (const [key, expiry] of oauthStates) if (expiry < Date.now()) oauthStates.delete(key);
+    const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: redirectUri, response_type: "code", scope: "identify", state });
+    res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
+  });
+  app.get("/auth/callback", async (req, res) => {
+    const { code, state, error } = req.query;
+    const stateKey = String(state || "");
+    const expiresAt = oauthStates.get(stateKey);
+    oauthStates.delete(stateKey);
+    if (error || !code || !state || !expiresAt || expiresAt < Date.now()) {
+      return res.status(400).send("Autorización de Discord cancelada o inválida. Vuelve al panel e inténtalo de nuevo.");
     }
-    loginFailures.delete(ip);
-    req.session = { admin: true, user: { id: "dashboard-admin", username: "Administrador", global_name: "Administrador" } };
-    res.json({ ok: true });
+    try {
+      const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: process.env.CLIENT_ID, client_secret: process.env.CLIENT_SECRET, grant_type: "authorization_code", code: String(code), redirect_uri: redirectUri })
+      });
+      const tokenData = await tokenResponse.json();
+      if (!tokenResponse.ok || !tokenData.access_token) throw new Error("No se pudo validar el acceso con Discord.");
+      const userResponse = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+      const user = await userResponse.json();
+      if (!userResponse.ok || !user.id) throw new Error("Discord no devolvió un usuario válido.");
+      if (!allowedAdmins.has(user.id)) return res.status(403).send("Tu cuenta de Discord no está autorizada para administrar MONARCH.");
+      req.session = { user: { id: user.id, username: user.username, global_name: user.global_name || user.username, avatar: user.avatar } };
+      res.redirect("/");
+    } catch (err) {
+      console.error("Discord OAuth callback error:", err.message);
+      res.status(502).send("No se pudo completar el inicio de sesión con Discord. Vuelve al panel e inténtalo.");
+    }
   });
   app.post("/auth/logout", (req, res) => { req.session = null; res.json({ ok: true }); });
   app.get("/api/me", auth, (req, res) => res.json({ user: req.session.user }));
@@ -118,8 +138,8 @@ const dashboardHtml = `<!doctype html>
 <style>
 :root{color-scheme:dark;--bg:#090909;--panel:#121212;--line:#292929;--red:#d62828;--muted:#999}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f4f4f4;font:15px Inter,system-ui,sans-serif}button,input,select,textarea{font:inherit}button{background:var(--red);border:0;color:white;border-radius:9px;padding:11px 16px;cursor:pointer;font-weight:700}button.secondary{background:#252525}header{height:70px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 max(5vw,20px)}.brand{font-weight:900;letter-spacing:3px}.brand span{color:var(--red)}main{max-width:1100px;margin:40px auto;padding:0 20px}.hero{margin-bottom:28px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:15px}.server{cursor:pointer;transition:.2s}.server:hover{border-color:var(--red);transform:translateY(-2px)}h1{font-size:30px;margin:0 0 8px}h2{font-size:18px;margin:0 0 16px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.field{display:grid;gap:7px;margin:12px 0}input,select,textarea{width:100%;background:#090909;color:white;border:1px solid var(--line);padding:11px;border-radius:8px}textarea{min-height:90px}label{color:#ccc;font-size:13px}.switch{display:flex;align-items:center;gap:9px;margin:10px 0}.switch input{width:auto}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}.tabs button{background:#222}.tabs button.active{background:var(--red)}.hidden{display:none}.server-icon{width:42px;height:42px;border-radius:12px;background:#292929;object-fit:cover}.event-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.event{background:#0b0b0b;border:1px solid var(--line);border-radius:8px;padding:9px}.status{color:#7be0a2}.error{color:#ff7777}@media(max-width:600px){main{margin:25px auto}h1{font-size:24px}}
 </style></head><body>
-<header><div class="brand">MON<span>ARCH</span></div><div id="userArea"><form id="loginForm" class="row"><input id="dashboardPassword" type="password" placeholder="Contraseña de administrador" autocomplete="current-password" required style="width:230px"><button type="submit">Entrar</button></form></div></header>
-<main><section id="home"><div class="hero"><h1>Panel de control</h1><p class="muted">Administra tus servidores y configura MONARCH desde un solo lugar.</p></div><div id="guilds" class="grid"><div class="card">Introduce la contraseña de administrador para acceder al panel.</div></div></section>
+<header><div class="brand">MON<span>ARCH</span></div><div id="userArea"><a href="/auth/discord"><button type="button">Continuar con Discord</button></a></div></header>
+<main><section id="home"><div class="hero"><h1>Panel de control</h1><p class="muted">Administra tus servidores y configura MONARCH desde un solo lugar.</p></div><div id="guilds" class="grid"><div class="card">Inicia sesión con tu cuenta autorizada de Discord para administrar MONARCH.</div></div></section>
 <section id="settings" class="hidden"><div class="row"><button class="secondary" onclick="showHome()">← Servidores</button><div><h1 id="guildName">Servidor</h1><p class="muted">Configuración de MONARCH</p></div></div>
 <div class="tabs"><button class="active" data-tab="logs">Logs</button><button data-tab="welcome">Bienvenidas</button><button data-tab="goodbye">Despedidas</button><button data-tab="prefix">Prefijos</button></div>
 <div id="tab-logs" class="card"><h2>Registro de eventos</h2><div class="field"><label>Canal de logs</label><select id="logsChannel"></select></div><div id="events" class="event-grid"></div><button onclick="save()">Guardar logs</button></div>
@@ -142,9 +162,7 @@ function addPrefix(){const id=document.getElementById("prefixRole").value,p=docu
 function removePrefix(id){delete config.prefixRoles[id];renderPrefixes()}
 async function save(){try{config.logs.channelId=document.getElementById("logsChannel").value||null;document.querySelectorAll("[data-event]").forEach(e=>config.logs.events[e.dataset.event]=e.checked);config.welcome={enabled:document.getElementById("welcomeEnabled").checked,channelId:document.getElementById("welcomeChannel").value||null,message:document.getElementById("welcomeMessage").value,embed:document.getElementById("welcomeEmbed").checked};config.goodbye={enabled:document.getElementById("goodbyeEnabled").checked,channelId:document.getElementById("goodbyeChannel").value||null,message:document.getElementById("goodbyeMessage").value};await api("/api/guilds/"+current+"/config",{method:"PUT",body:JSON.stringify(config)});notice("Cambios guardados correctamente.");}catch(e){notice(e.message)}}
 document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));["logs","welcome","goodbye","prefix"].forEach(t=>document.getElementById("tab-"+t).classList.toggle("hidden",t!==b.dataset.tab))}));
-document.getElementById("loginForm").addEventListener("submit",async e=>{e.preventDefault();const password=document.getElementById("dashboardPassword").value;try{await api("/auth/password",{method:"POST",body:JSON.stringify({password})});location.reload()}catch(err){noticeLogin(err.message)}});
-function noticeLogin(message){let el=document.getElementById("loginError");if(!el){el=document.createElement("p");el.id="loginError";el.className="error";document.getElementById("userArea").appendChild(el)}el.textContent=message}
-(async()=>{try{const me=await api("/api/me");document.getElementById("userArea").innerHTML='Hola, '+esc(me.user.global_name||me.user.username)+' · <button class="secondary" onclick="logout()">Salir</button>';const d=await api("/api/guilds");document.getElementById("guilds").innerHTML=d.guilds.length?d.guilds.map(g=>'<div class="card server" onclick="openGuild(\''+g.id+'\',\''+esc(g.name).replace(/'/g,"&#39;")+'\')"><div class="row">'+(g.icon?'<img class="server-icon" src="'+g.icon+'">':'<div class="server-icon"></div>')+'<div><b>'+esc(g.name)+'</b><div class="muted">'+g.memberCount+' miembros</div></div></div></div>').join(""):'<div class="card">No se encontraron servidores donde tengas permisos de administración y el bot esté instalado.</div>';}catch(e){document.getElementById("guilds").innerHTML='<div class="card">Inicia sesión con la contraseña de administrador para administrar MONARCH.</div>'}})();
+(async()=>{try{const me=await api("/api/me");document.getElementById("userArea").innerHTML='Hola, '+esc(me.user.global_name||me.user.username)+' · <button class="secondary" onclick="logout()">Salir</button>';const d=await api("/api/guilds");document.getElementById("guilds").innerHTML=d.guilds.length?d.guilds.map(g=>'<div class="card server" onclick="openGuild(\''+g.id+'\',\''+esc(g.name).replace(/'/g,"&#39;")+'\')"><div class="row">'+(g.icon?'<img class="server-icon" src="'+g.icon+'">':'<div class="server-icon"></div>')+'<div><b>'+esc(g.name)+'</b><div class="muted">'+g.memberCount+' miembros</div></div></div></div>').join(""):'<div class="card">No se encontraron servidores donde tengas permisos de administración y el bot esté instalado.</div>';}catch(e){document.getElementById("guilds").innerHTML='<div class="card">Inicia sesión con Discord para administrar MONARCH.</div>'}})();
 async function logout(){await fetch("/auth/logout",{method:"POST"});location.reload()}
 </script></body></html>`;
 
