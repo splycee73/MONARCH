@@ -23,6 +23,8 @@ function createWebServer(client) {
     next();
   });
   app.use(express.json({ limit: "100kb" }));
+  // OAuth state is kept server-side so it does not depend on a browser cookie surviving the Discord redirect.
+  const pendingOAuthStates = new Map();
   app.use(cookieSession({
     name: "monarch_session",
     keys: [sessionSecret],
@@ -42,7 +44,8 @@ function createWebServer(client) {
   app.get("/auth/login", (req, res) => {
     if (!clientId || !clientSecret) return res.status(500).send("Configura CLIENT_ID y CLIENT_SECRET.");
     const state = require("node:crypto").randomBytes(24).toString("hex");
-    req.session.oauthState = state;
+    pendingOAuthStates.set(state, Date.now());
+    for (const [key, createdAt] of pendingOAuthStates) if (Date.now() - createdAt > 10 * 60 * 1000) pendingOAuthStates.delete(key);
     const params = new URLSearchParams({
       client_id: clientId, redirect_uri: baseUrl + "/auth/muyeon/callback",
       response_type: "code", scope: "identify guilds", state
@@ -51,7 +54,10 @@ function createWebServer(client) {
   });
   app.get("/auth/muyeon/callback", async (req, res) => {
     try {
-      if (!req.query.code || !req.query.state || req.query.state !== req.session?.oauthState) return res.status(400).send("OAuth state inválido.");
+      const state = String(req.query.state || "");
+      const stateCreatedAt = pendingOAuthStates.get(state);
+      if (!req.query.code || !state || !stateCreatedAt || Date.now() - stateCreatedAt > 10 * 60 * 1000) return res.status(400).send("OAuth state inválido o expirado. Vuelve a iniciar sesión.");
+      pendingOAuthStates.delete(state);
       const body = new URLSearchParams({
         client_id: clientId, client_secret: clientSecret, grant_type: "authorization_code",
         code: req.query.code, redirect_uri: baseUrl + "/auth/muyeon/callback"
@@ -69,7 +75,6 @@ function createWebServer(client) {
       if (!userResponse.ok) throw new Error("No se pudo obtener el usuario.");
       const user = await userResponse.json();
       req.session.user = { id: user.id, username: user.username, global_name: user.global_name, avatar: user.avatar };
-      req.session.oauthState = null;
       res.redirect("/");
     } catch (error) {
       req.session = null;
