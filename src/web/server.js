@@ -25,7 +25,6 @@ function createWebServer(client) {
     next();
   });
   app.use(express.json({ limit: "100kb" }));
-  const loginFailures = new Map();
   app.use(cookieSession({
     name: "monarch_session",
     keys: [sessionSecret],
@@ -84,7 +83,7 @@ function createWebServer(client) {
   app.get("/api/me", auth, (req, res) => res.json({ user: req.session.user }));
   app.get("/api/guilds", auth, async (req, res) => {
     const results = await Promise.all([...client.guilds.cache.values()].map(async g => {
-      if (!await canManage(g, req.session.user.id, req.session.admin)) return null;
+      if (!await canManage(g, req.session.user.id)) return null;
       return { id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), memberCount: g.memberCount };
     }));
     const guilds = results.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
@@ -92,7 +91,7 @@ function createWebServer(client) {
   });
   app.get("/api/guilds/:id/config", auth, async (req, res) => {
     const guild = client.guilds.cache.get(req.params.id);
-    if (!guild || !await canManage(guild, req.session.user.id, req.session.admin)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
+    if (!guild || !await canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
     res.json({ config: getGuildConfig(guild.id), channels: guild.channels.cache.filter(c => c.isTextBased()).map(c => ({ id: c.id, name: c.name })) , roles: guild.roles.cache.filter(r => !r.managed && r.id !== guild.id).map(r => ({ id: r.id, name: r.name })) });
   });
   app.put("/api/guilds/:id/config", auth, async (req, res) => {
