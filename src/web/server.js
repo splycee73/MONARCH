@@ -47,8 +47,12 @@ function createWebServer(client) {
       const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body
       });
-      if (!tokenResponse.ok) throw new Error("No se pudo completar OAuth2.");
-      const token = await tokenResponse.json();
+      const tokenText = await tokenResponse.text();
+      if (!tokenResponse.ok) {
+        console.error("Discord OAuth token error:", tokenResponse.status, tokenText.slice(0, 1000));
+        throw new Error(`Discord OAuth falló (${tokenResponse.status})`);
+      }
+      const token = JSON.parse(tokenText);
       const userResponse = await fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: "Bearer " + token.access_token } });
       if (!userResponse.ok) throw new Error("No se pudo obtener el usuario.");
       const user = await userResponse.json();
