@@ -3,7 +3,7 @@ const {
   REST, Routes, AuditLogEvent
 } = require("discord.js");
 const commands = require("../commands");
-const { getGuildConfig, saveGuildConfig, addWarning, getWarnings } = require("../storage");
+const { getGuildConfig, saveGuildConfig, addWarning, getWarnings, getPrefixState, savePrefixState } = require("../storage");
 
 const client = new Client({
   intents: [
@@ -32,17 +32,29 @@ async function sendLog(guild, key, title, description, color = 0xD62828) {
 async function applyRolePrefix(member) {
   if (!member || member.user.bot || !member.manageable) return;
   const config = getGuildConfig(member.guild.id);
-  const matches = Object.entries(config.prefixRoles || {})
+  const state = getPrefixState(member.guild.id);
+  const record = state[member.id];
+  const currentNick = member.nickname;
+  const active = Object.entries(config.prefixRoles || {})
     .filter(([roleId]) => member.roles.cache.has(roleId))
     .sort((a, b) => (member.guild.roles.cache.get(b[0])?.position || 0) - (member.guild.roles.cache.get(a[0])?.position || 0));
-  const selected = matches[0];
-  const old = member.nickname || member.user.username;
-  const marker = "[MONARCH_PREFIX]";
-  const original = member.guild.members.me?.client?.user ? null : null;
-  let base = old;
-  if (member.user.username !== old && old.startsWith("[")) base = old.replace(/^\[[^\]]+\]\s*/, "");
-  const next = selected ? (selected[1] + " " + base).slice(0, 32) : (base === old ? null : base.slice(0, 32));
-  if (next !== member.nickname) await member.setNickname(next, "MONARCH: role prefix sync").catch(() => {});
+  let baseNickname = record ? record.baseNickname : currentNick;
+  if (record && currentNick !== record.appliedNickname) baseNickname = currentNick;
+
+  if (!active.length) {
+    if (record && currentNick === record.appliedNickname) {
+      await member.setNickname(record.baseNickname, "MONARCH: restore nickname after role prefix").catch(() => {});
+    }
+    delete state[member.id];
+    savePrefixState(member.guild.id, state);
+    return;
+  }
+
+  const [roleId, prefix] = active[0];
+  const desired = (prefix.trim() + " " + (baseNickname || member.user.username)).slice(0, 32);
+  if (currentNick !== desired) await member.setNickname(desired, "MONARCH: synchronize role prefix").catch(() => {});
+  state[member.id] = { baseNickname, appliedNickname: desired, roleId, prefix: prefix.trim() };
+  savePrefixState(member.guild.id, state);
 }
 async function logModeration(guild, text) {
   const config = getGuildConfig(guild.id);
