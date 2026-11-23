@@ -22,8 +22,8 @@ function createWebServer(client) {
     if (!req.session?.user) return res.status(401).json({ error: "Inicia sesión con Discord." });
     next();
   }
-  function canManage(guild, userId) {
-    const member = guild.members.cache.get(userId);
+  async function canManage(guild, userId) {
+    const member = await guild.members.fetch(userId).catch(() => null);
     return Boolean(member && (member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild)));
   }
 
@@ -59,21 +59,22 @@ function createWebServer(client) {
   });
   app.post("/auth/logout", (req, res) => { req.session = null; res.json({ ok: true }); });
   app.get("/api/me", auth, (req, res) => res.json({ user: req.session.user }));
-  app.get("/api/guilds", auth, (req, res) => {
-    const guilds = [...client.guilds.cache.values()]
-      .filter(g => canManage(g, req.session.user.id))
-      .map(g => ({ id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), memberCount: g.memberCount }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+  app.get("/api/guilds", auth, async (req, res) => {
+    const results = await Promise.all([...client.guilds.cache.values()].map(async g => {
+      if (!await canManage(g, req.session.user.id)) return null;
+      return { id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), memberCount: g.memberCount };
+    }));
+    const guilds = results.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
     res.json({ guilds });
   });
-  app.get("/api/guilds/:id/config", auth, (req, res) => {
+  app.get("/api/guilds/:id/config", auth, async (req, res) => {
     const guild = client.guilds.cache.get(req.params.id);
-    if (!guild || !canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
+    if (!guild || !await canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
     res.json({ config: getGuildConfig(guild.id), channels: guild.channels.cache.filter(c => c.isTextBased()).map(c => ({ id: c.id, name: c.name })) , roles: guild.roles.cache.filter(r => !r.managed && r.id !== guild.id).map(r => ({ id: r.id, name: r.name })) });
   });
-  app.put("/api/guilds/:id/config", auth, (req, res) => {
+  app.put("/api/guilds/:id/config", auth, async (req, res) => {
     const guild = client.guilds.cache.get(req.params.id);
-    if (!guild || !canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
+    if (!guild || !await canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
     const input = req.body || {};
     const current = getGuildConfig(guild.id);
     if (input.logs) {
