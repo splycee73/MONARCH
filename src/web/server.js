@@ -30,7 +30,7 @@ function createWebServer(client) {
     name: "monarch_session",
     keys: [sessionSecret],
     maxAge: 12 * 60 * 60 * 1000,
-    httpOnly: true, sameSite: "lax", secure: baseUrl.startsWith("https://")
+    httpOnly: true, sameSite: "lax", secure: true
   }));
 
   function auth(req, res, next) {
@@ -60,44 +60,6 @@ function createWebServer(client) {
     req.session = { admin: true, user: { id: "dashboard-admin", username: "Administrador", global_name: "Administrador" } };
     res.json({ ok: true });
   });
-  /* OAuth de Discord desactivado: el panel utiliza contraseña de administrador. */
-  app.get("/auth/login", (req, res) => {
-    return res.status(404).send("El inicio de sesión con Discord está desactivado.");
-    res.status(404).send("El inicio de sesión con Discord está desactivado.");
-  });
-  app.get("/auth/muyeon/callback", (req, res) => res.status(404).send("El inicio de sesión con Discord está desactivado."));
-  /* Callback OAuth anterior conservado temporalmente como ruta desactivada.
-  app.get("/auth/muyeon/callback", async (req, res) => {
-    try {
-      const state = String(req.query.state || "");
-      const stateCreatedAt = pendingOAuthStates.get(state);
-      if (!req.query.code || !state || !stateCreatedAt || Date.now() - stateCreatedAt > 10 * 60 * 1000) return res.status(400).send("OAuth state inválido o expirado. Vuelve a iniciar sesión.");
-      pendingOAuthStates.delete(state);
-      const body = new URLSearchParams({
-        client_id: clientId, client_secret: clientSecret, grant_type: "authorization_code",
-        code: req.query.code, redirect_uri: baseUrl + "/auth/muyeon/callback"
-      });
-      const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
-        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body
-      });
-      const tokenText = await tokenResponse.text();
-      if (!tokenResponse.ok) {
-        console.error("Discord OAuth token exchange failed with status:", tokenResponse.status);
-        throw new Error(`Discord OAuth falló (${tokenResponse.status})`);
-      }
-      const token = JSON.parse(tokenText);
-      const userResponse = await fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: "Bearer " + token.access_token } });
-      if (!userResponse.ok) throw new Error("No se pudo obtener el usuario.");
-      const user = await userResponse.json();
-      req.session.user = { id: user.id, username: user.username, global_name: user.global_name, avatar: user.avatar };
-      res.redirect("/");
-    } catch (error) {
-      req.session = null;
-      console.error("OAuth callback failed:", error.message);
-      res.status(500).send("Error iniciando sesión. Inténtalo de nuevo.");
-    }
-  });
-  */
   app.post("/auth/logout", (req, res) => { req.session = null; res.json({ ok: true }); });
   app.get("/api/me", auth, (req, res) => res.json({ user: req.session.user }));
   app.get("/api/guilds", auth, async (req, res) => {
