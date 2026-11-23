@@ -7,7 +7,7 @@ function createWebServer(client) {
   const app = express();
   const sessionSecret = process.env.SESSION_SECRET;
   const crypto = require("node:crypto");
-  const dashboardUrl = (process.env.DASHBOARD_URL || "").replace(/\\/+$/, "");
+  const dashboardUrl = (process.env.DASHBOARD_URL || "").replace(/\/+$/, "");
   const allowedAdmins = new Set((process.env.OWNER_IDS || "").split(",").map(id => id.trim()).filter(Boolean));
   const oauthStates = new Map();
   if (!dashboardUrl) throw new Error("DASHBOARD_URL debe apuntar al dominio público del panel.");
