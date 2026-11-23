@@ -44,17 +44,17 @@ function createWebServer(client) {
     const state = require("node:crypto").randomBytes(24).toString("hex");
     req.session.oauthState = state;
     const params = new URLSearchParams({
-      client_id: clientId, redirect_uri: baseUrl + "/auth/callback",
+      client_id: clientId, redirect_uri: baseUrl + "/auth/muyeon/callback",
       response_type: "code", scope: "identify guilds", state
     });
     res.redirect("https://discord.com/oauth2/authorize?" + params);
   });
-  app.get("/auth/callback", async (req, res) => {
+  app.get("/auth/muyeon/callback", async (req, res) => {
     try {
       if (!req.query.code || !req.query.state || req.query.state !== req.session?.oauthState) return res.status(400).send("OAuth state inválido.");
       const body = new URLSearchParams({
         client_id: clientId, client_secret: clientSecret, grant_type: "authorization_code",
-        code: req.query.code, redirect_uri: baseUrl + "/auth/callback"
+        code: req.query.code, redirect_uri: baseUrl + "/auth/muyeon/callback"
       });
       const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body
