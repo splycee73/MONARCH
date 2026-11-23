@@ -8,13 +8,25 @@ function createWebServer(client) {
   const baseUrl = (process.env.DASHBOARD_URL || "http://localhost:3000").replace(/\/$/, "");
   const clientId = process.env.CLIENT_ID;
   const clientSecret = process.env.CLIENT_SECRET;
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret || sessionSecret.length < 32) {
+    throw new Error("SESSION_SECRET debe estar configurado en Render y tener al menos 32 caracteres.");
+  }
 
   app.set("trust proxy", 1);
+  app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.set("Pragma", "no-cache");
+    res.set("Referrer-Policy", "no-referrer");
+    res.set("X-Content-Type-Options", "nosniff");
+    next();
+  });
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieSession({
     name: "monarch_session",
-    keys: [process.env.SESSION_SECRET || "development-only-change-this-secret"],
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    keys: [sessionSecret],
+    maxAge: 12 * 60 * 60 * 1000,
     httpOnly: true, sameSite: "lax", secure: baseUrl.startsWith("https://")
   }));
 
@@ -49,7 +61,7 @@ function createWebServer(client) {
       });
       const tokenText = await tokenResponse.text();
       if (!tokenResponse.ok) {
-        console.error("Discord OAuth token error:", tokenResponse.status, tokenText.slice(0, 1000));
+        console.error("Discord OAuth token exchange failed with status:", tokenResponse.status);
         throw new Error(`Discord OAuth falló (${tokenResponse.status})`);
       }
       const token = JSON.parse(tokenText);
@@ -59,7 +71,11 @@ function createWebServer(client) {
       req.session.user = { id: user.id, username: user.username, global_name: user.global_name, avatar: user.avatar };
       req.session.oauthState = null;
       res.redirect("/");
-    } catch (error) { console.error("OAuth error:", error); res.status(500).send("Error iniciando sesión. Inténtalo de nuevo."); }
+    } catch (error) {
+      req.session = null;
+      console.error("OAuth callback failed:", error.message);
+      res.status(500).send("Error iniciando sesión. Inténtalo de nuevo.");
+    }
   });
   app.post("/auth/logout", (req, res) => { req.session = null; res.json({ ok: true }); });
   app.get("/api/me", auth, (req, res) => res.json({ user: req.session.user }));
