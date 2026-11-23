@@ -73,7 +73,7 @@ function createWebServer(client) {
       if (!userResponse.ok || !user.id) throw new Error("Discord no devolvió un usuario válido.");
       if (!allowedAdmins.has(user.id)) return res.status(403).send("Tu cuenta de Discord no está autorizada para administrar MONARCH.");
       req.session = { user: { id: user.id, username: user.username, global_name: user.global_name || user.username, avatar: user.avatar } };
-      res.redirect("/");
+      res.redirect("/dashboard");
     } catch (err) {
       console.error("Discord OAuth callback error:", err.message);
       res.status(502).send("No se pudo completar el inicio de sesión con Discord. Vuelve al panel e inténtalo.");
@@ -127,7 +127,15 @@ function createWebServer(client) {
     res.json({ ok: true, config: current });
   });
 
-  app.get("/", (req, res) => res.type("html").send(dashboardHtml));
+  app.get("/", (req, res) => res.type("html").send(`<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MONARCH</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#090909;color:#f4f4f4;font:16px Inter,system-ui,sans-serif;padding:24px}.card{width:min(560px,100%);text-align:center;background:#121212;border:1px solid #292929;border-radius:18px;padding:42px 28px}.brand{font-weight:900;letter-spacing:5px;font-size:24px}.brand span{color:#d62828}h1{font-size:32px;margin:28px 0 10px}p{color:#999;line-height:1.6}a{display:inline-block;margin-top:18px;background:#d62828;color:white;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:9px}
+</style></head><body><main class="card"><div class="brand">MON<span>ARCH</span></div><h1>Bienvenido a MONARCH</h1><p>Administra y configura tus servidores de Discord desde un solo lugar.</p><a href="/auth/discord">Continuar con Discord</a></main></body></html>`));
+  app.get("/dashboard", (req, res) => {
+    if (!req.session?.user?.id || !allowedAdmins.has(req.session.user.id)) return res.redirect("/");
+    res.type("html").send(dashboardHtml);
+  });
   app.get("/health", (req, res) => res.json({ ok: true, bot: client.isReady(), uptime: process.uptime() }));
   return app;
 }
