@@ -116,7 +116,16 @@ client.on("guildAuditLogEntryCreate", (entry, guild) => {
   sendLog(guild, "moderation", "Evento de auditoría", `Acción: ${entry.action}\nAutor: ${actor}\nObjetivo: ${entry.target?.tag || entry.target?.name || entry.targetId || "No disponible"}\nMotivo: ${entry.reason || "No indicado"}`);
 });
 
-client.on("guildCreate", () => updateMemberPresence());\nclient.on("guildDelete", () => updateMemberPresence());\n\nfunction updateMemberPresence() {\n  if (!client.user) return;\n  const total = client.guilds.cache.reduce((sum, guild) => sum + (guild.memberCount || 0), 0);\n  client.user.setActivity(`${total.toLocaleString("es-ES")} miembros`, { type: ActivityType.Watching });\n}\n\nclient.on("interactionCreate", async interaction => {
+client.on("guildCreate", () => updateMemberPresence());
+client.on("guildDelete", () => updateMemberPresence());
+
+function updateMemberPresence() {
+  if (!client.user) return;
+  const total = client.guilds.cache.reduce((sum, guild) => sum + (guild.memberCount || 0), 0);
+  client.user.setActivity(`${total.toLocaleString("es-ES")} miembros`, { type: ActivityType.Watching });
+}
+
+client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, guild, member } = interaction;
   try {
