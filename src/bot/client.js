@@ -1,6 +1,6 @@
 const {
   Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionFlagsBits,
-  REST, Routes, AuditLogEvent
+  REST, Routes, AuditLogEvent, MessageFlags
 } = require("discord.js");
 const commands = require("../commands");
 const { handleWelcome, sendWelcome } = require("../welcome");
@@ -64,7 +64,7 @@ async function logModeration(guild, text) {
   if (channel?.isTextBased()) channel.send({ embeds: [new EmbedBuilder().setColor(0xD62828).setDescription(text).setTimestamp()] }).catch(() => {});
 }
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`MONARCH online as ${client.user.tag}`);
   try {
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -119,45 +119,46 @@ client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, guild, member } = interaction;
   try {
-    if (commandName === "ping") return interaction.reply({ content: `Pong: ${client.ws.ping} ms`, ephemeral: true });
-    if (commandName === "help") return interaction.reply({ content: "**MONARCH**\n/ping · /clear · /kick · /ban · /timeout · /warn · /warnings · /prefix · /logs · /welcome\nConfigura MONARCH con comandos slash.", ephemeral: true });
-    if (!guild) return interaction.reply({ content: "Este comando solo funciona en servidores.", ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (commandName === "ping") return interaction.editReply({ content: `Pong: ${client.ws.ping} ms` });
+    if (commandName === "help") return interaction.editReply({ content: "**MONARCH**\n/ping · /clear · /kick · /ban · /timeout · /warn · /warnings · /prefix · /logs · /welcome\nConfigura MONARCH con comandos slash.", ephemeral: true });
+    if (!guild) return interaction.editReply({ content: "Este comando solo funciona en servidores.", ephemeral: true });
 
     if (commandName === "clear") {
       const amount = interaction.options.getInteger("cantidad");
       const deleted = await interaction.channel.bulkDelete(amount, true);
-      return interaction.reply({ content: `Se eliminaron **${deleted.size}** mensajes. Los mensajes de más de 14 días no se pueden borrar en bloque.`, ephemeral: true });
+      return interaction.editReply({ content: `Se eliminaron **${deleted.size}** mensajes. Los mensajes de más de 14 días no se pueden borrar en bloque.`, ephemeral: true });
     }
     if (commandName === "kick" || commandName === "ban") {
       const user = interaction.options.getUser("usuario");
       const reason = interaction.options.getString("razon") || "Sin motivo indicado";
       const target = await guild.members.fetch(user.id).catch(() => null);
-      if (target && !target.moderatable && commandName === "ban") return interaction.reply({ content: "No puedo moderar a ese miembro por la jerarquía de roles.", ephemeral: true });
-      if (commandName === "kick" && (!target || !target.kickable)) return interaction.reply({ content: "No puedo expulsar a ese miembro.", ephemeral: true });
+      if (target && !target.moderatable && commandName === "ban") return interaction.editReply({ content: "No puedo moderar a ese miembro por la jerarquía de roles.", ephemeral: true });
+      if (commandName === "kick" && (!target || !target.kickable)) return interaction.editReply({ content: "No puedo expulsar a ese miembro.", ephemeral: true });
       if (commandName === "kick") await target.kick(reason); else await guild.members.ban(user.id, { reason });
       await logModeration(guild, `**${commandName.toUpperCase()}** · ${user.tag}\nModerador: ${interaction.user.tag}\nMotivo: ${reason}`);
-      return interaction.reply({ content: `${user.tag} fue ${commandName === "kick" ? "expulsado" : "baneado"}.`, ephemeral: true });
+      return interaction.editReply({ content: `${user.tag} fue ${commandName === "kick" ? "expulsado" : "baneado"}.`, ephemeral: true });
     }
     if (commandName === "timeout") {
       const user = interaction.options.getUser("usuario");
       const minutes = interaction.options.getInteger("minutos");
       const target = await guild.members.fetch(user.id);
-      if (!target.moderatable) return interaction.reply({ content: "No puedo moderar a ese miembro.", ephemeral: true });
+      if (!target.moderatable) return interaction.editReply({ content: "No puedo moderar a ese miembro.", ephemeral: true });
       await target.timeout(minutes === 0 ? null : minutes * 60000, interaction.options.getString("razon") || "Moderación");
       await logModeration(guild, `**TIMEOUT** · ${user.tag} · ${minutes} min · Moderador: ${interaction.user.tag}`);
-      return interaction.reply({ content: minutes === 0 ? "Timeout retirado." : `Timeout aplicado por ${minutes} minutos.`, ephemeral: true });
+      return interaction.editReply({ content: minutes === 0 ? "Timeout retirado." : `Timeout aplicado por ${minutes} minutos.`, ephemeral: true });
     }
     if (commandName === "warn") {
       const user = interaction.options.getUser("usuario");
       const reason = interaction.options.getString("razon");
       const warning = addWarning(guild.id, { userId: user.id, moderatorId: interaction.user.id, reason });
       await logModeration(guild, `**WARN** · ${user.tag}\nMotivo: ${reason}\nID: ${warning.id}`);
-      return interaction.reply({ content: `Advertencia registrada para ${user.tag}.`, ephemeral: true });
+      return interaction.editReply({ content: `Advertencia registrada para ${user.tag}.`, ephemeral: true });
     }
     if (commandName === "warnings") {
       const user = interaction.options.getUser("usuario");
       const list = getWarnings(guild.id).filter(item => item.userId === user.id);
-      return interaction.reply({ content: list.length ? list.slice(-10).map((w, i) => `${i + 1}. ${w.reason} — <@!${w.moderatorId}>`).join("\n") : "Este usuario no tiene advertencias.", ephemeral: true });
+      return interaction.editReply({ content: list.length ? list.slice(-10).map((w, i) => `${i + 1}. ${w.reason} — <@!${w.moderatorId}>`).join("\n") : "Este usuario no tiene advertencias.", ephemeral: true });
     }
     if (commandName === "prefix") {
       const config = getGuildConfig(guild.id);
@@ -165,32 +166,32 @@ client.on("interactionCreate", async interaction => {
       if (sub === "set") {
         const role = interaction.options.getRole("role");
         const prefix = interaction.options.getString("prefix").trim();
-        if (!prefix || prefix.length > 8) return interaction.reply({ content: "El prefijo debe tener entre 1 y 8 caracteres.", ephemeral: true });
+        if (!prefix || prefix.length > 8) return interaction.editReply({ content: "El prefijo debe tener entre 1 y 8 caracteres.", ephemeral: true });
         config.prefixRoles[role.id] = prefix;
         saveGuildConfig(guild.id, config);
-        return interaction.reply({ content: `Prefijo **${prefix}** configurado para ${role}.`, ephemeral: true });
+        return interaction.editReply({ content: `Prefijo **${prefix}** configurado para ${role}.`, ephemeral: true });
       }
       if (sub === "remove") {
         const role = interaction.options.getRole("role");
         delete config.prefixRoles[role.id];
         saveGuildConfig(guild.id, config);
-        return interaction.reply({ content: `Configuración eliminada para ${role.name}.`, ephemeral: true });
+        return interaction.editReply({ content: `Configuración eliminada para ${role.name}.`, ephemeral: true });
       }
       const rows = Object.entries(config.prefixRoles);
-      return interaction.reply({ content: rows.length ? rows.map(([id, prefix]) => `<@&${id}> → **${prefix}**`).join("\n") : "No hay prefijos configurados.", ephemeral: true });
+      return interaction.editReply({ content: rows.length ? rows.map(([id, prefix]) => `<@&${id}> → **${prefix}**`).join("\n") : "No hay prefijos configurados.", ephemeral: true });
     }
     if (commandName === "logs") {
       const config = getGuildConfig(guild.id);
       config.logs.channelId = interaction.options.getChannel("canal").id;
       saveGuildConfig(guild.id, config);
-      return interaction.reply({ content: "Canal de logs configurado. Puedes activar o desactivar eventos desde el panel.", ephemeral: true });
+      return interaction.editReply({ content: "Canal de logs configurado. Puedes activar o desactivar eventos desde el panel.", ephemeral: true });
     }
     if (commandName === "welcome") return handleWelcome(interaction);
   } catch (error) {
     console.error("Command error:", error);
-    const payload = { content: "Ocurrió un error al ejecutar el comando. Revisa permisos y jerarquía de roles.", ephemeral: true };
-    if (interaction.deferred || interaction.replied) return interaction.followUp(payload).catch(() => {});
-    return interaction.reply(payload).catch(() => {});
+    const payload = { content: "Ocurrió un error al ejecutar el comando. Revisa permisos y jerarquía de roles." };
+    if (interaction.deferred || interaction.replied) return interaction.editReply(payload).catch(() => {});
+    return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
   }
 });
 
