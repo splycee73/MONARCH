@@ -1,7 +1,8 @@
 require("dotenv").config();
 const client=require("./bot/client");
 const {ensureDirs}=require("./storage");
-if(!process.env.DISCORD_TOKEN){console.error("Falta DISCORD_TOKEN.");process.exit(1);}
+const missing=["DISCORD_TOKEN","CLIENT_ID"].filter(key=>!process.env[key]);
+if(missing.length){console.error("Faltan variables de entorno: "+missing.join(", "));process.exit(1);}
 let closing=false;
 function shutdown(signal){if(closing)return;closing=true;console.log("\n"+signal+" recibido. Cerrando MONARCH...");client.destroy();process.exit(0);}
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
