@@ -61,8 +61,8 @@ async function handleWelcome(interaction) {
   if(title!==null) w.title=title;
   if(message!==null) w.message=message;
   if(color!==null) w.color=color.startsWith("#")?color:"#"+color;
-  if(image!==null) w.image=image.toLowerCase()==="none"?null:image;
-  if(thumbnail!==null) w.thumbnail=thumbnail.toLowerCase()==="none"?null:thumbnail;
+  if(image!==null) w.image=image.toLowerCase()==="none"?"":image;
+  if(thumbnail!==null) w.thumbnail=thumbnail.toLowerCase()==="none"?"":thumbnail;
   if(!w.channelId) return interaction.editReply({content:"Selecciona un canal la primera vez que configures /welcome setup."});
   w.enabled=true;
   saveGuildConfig(interaction.guild.id,config);
