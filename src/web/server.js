@@ -8,10 +8,9 @@ function createWebServer(client) {
   const sessionSecret = process.env.SESSION_SECRET;
   const crypto = require("node:crypto");
   const dashboardUrl = (process.env.DASHBOARD_URL || "").replace(/\/+$/, "");
-  const allowedAdmins = new Set((process.env.OWNER_IDS || "").split(",").map(id => id.trim()).filter(Boolean));
   const oauthStates = new Map();
+  const oauthSessions = new Map();
   if (!dashboardUrl) throw new Error("DASHBOARD_URL debe apuntar al dominio público del panel.");
-  if (!allowedAdmins.size) throw new Error("OWNER_IDS debe contener al menos un ID de usuario de Discord autorizado.");
   if (!sessionSecret || sessionSecret.length < 32) {
     throw new Error("SESSION_SECRET debe estar configurado en Render y tener al menos 32 caracteres.");
   }
@@ -33,15 +32,55 @@ function createWebServer(client) {
   }));
 
   function auth(req, res, next) {
-    if (!req.session?.user?.id || !allowedAdmins.has(req.session.user.id)) {
-      return res.status(401).json({ error: "Inicia sesión con una cuenta de Discord autorizada." });
+    const sessionId = req.session?.sid;
+    const oauth = sessionId && oauthSessions.get(sessionId);
+    if (!req.session?.user?.id || !oauth || oauth.expiresAt < Date.now()) {
+      if (sessionId) oauthSessions.delete(sessionId);
+      req.session = null;
+      return res.status(401).json({ error: "Tu sesión de Discord expiró. Inicia sesión nuevamente." });
     }
     next();
   }
-  async function canManage(guild, userId, isDashboardAdmin = false) {
-    if (isDashboardAdmin) return true;
-    const member = await guild.members.fetch(userId).catch(() => null);
-    return Boolean(member && (member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild)));
+  async function getOAuthGuilds(req) {
+    const sessionId = req.session?.sid;
+    const oauth = sessionId && oauthSessions.get(sessionId);
+    if (!oauth || oauth.expiresAt < Date.now()) throw new Error("La sesión de Discord expiró.");
+    if (oauth.tokenExpiresAt <= Date.now() + 30000) {
+      if (!oauth.refreshToken) throw new Error("Discord requiere iniciar sesión nuevamente.");
+      const refreshResponse = await fetch("https://discord.com/api/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: process.env.CLIENT_ID,
+          client_secret: process.env.CLIENT_SECRET,
+          grant_type: "refresh_token",
+          refresh_token: oauth.refreshToken
+        })
+      });
+      const refreshed = await refreshResponse.json();
+      if (!refreshResponse.ok || !refreshed.access_token) {
+        oauthSessions.delete(sessionId);
+        throw new Error("No se pudo renovar la sesión de Discord.");
+      }
+      oauth.accessToken = refreshed.access_token;
+      oauth.refreshToken = refreshed.refresh_token || oauth.refreshToken;
+      oauth.tokenExpiresAt = Date.now() + (Number(refreshed.expires_in) || 3600) * 1000;
+    }
+    const response = await fetch("https://discord.com/api/users/@me/guilds", {
+      headers: { Authorization: `Bearer ${oauth.accessToken}` }
+    });
+    const guilds = await response.json();
+    if (!response.ok || !Array.isArray(guilds)) throw new Error("No se pudieron consultar tus servidores de Discord.");
+    return guilds;
+  }
+  async function canManage(guildId, req) {
+    const guilds = await getOAuthGuilds(req);
+    const membership = guilds.find(item => item.id === guildId);
+    if (!membership) return false;
+    const permissions = BigInt(membership.permissions || "0");
+    const ADMINISTRATOR = 0x8n;
+    const MANAGE_GUILD = 0x20n;
+    return (permissions & ADMINISTRATOR) === ADMINISTRATOR || (permissions & MANAGE_GUILD) === MANAGE_GUILD;
   }
 
   const redirectUri = `${dashboardUrl}/auth/callback`;
@@ -49,7 +88,7 @@ function createWebServer(client) {
     const state = crypto.randomBytes(24).toString("hex");
     oauthStates.set(state, Date.now() + 10 * 60 * 1000);
     for (const [key, expiry] of oauthStates) if (expiry < Date.now()) oauthStates.delete(key);
-    const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: redirectUri, response_type: "code", scope: "identify", state });
+    const params = new URLSearchParams({ client_id: process.env.CLIENT_ID, redirect_uri: redirectUri, response_type: "code", scope: "identify guilds", state });
     res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
   });
   app.get("/auth/callback", async (req, res) => {
@@ -71,32 +110,55 @@ function createWebServer(client) {
       const userResponse = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
       const user = await userResponse.json();
       if (!userResponse.ok || !user.id) throw new Error("Discord no devolvió un usuario válido.");
-      if (!allowedAdmins.has(user.id)) return res.status(403).send("Tu cuenta de Discord no está autorizada para administrar MONARCH.");
-      req.session = { user: { id: user.id, username: user.username, global_name: user.global_name || user.username, avatar: user.avatar } };
+      if (!tokenData.refresh_token) throw new Error("Discord no devolvió un token de renovación.");
+      const sessionId = crypto.randomBytes(32).toString("hex");
+      oauthSessions.set(sessionId, {
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        tokenExpiresAt: Date.now() + (Number(tokenData.expires_in) || 3600) * 1000,
+        expiresAt: Date.now() + 12 * 60 * 60 * 1000
+      });
+      req.session = {
+        sid: sessionId,
+        user: { id: user.id, username: user.username, global_name: user.global_name || user.username, avatar: user.avatar }
+      };
       res.redirect("/dashboard");
     } catch (err) {
       console.error("Discord OAuth callback error:", err.message);
       res.status(502).send("No se pudo completar el inicio de sesión con Discord. Vuelve al panel e inténtalo.");
     }
   });
-  app.post("/auth/logout", (req, res) => { req.session = null; res.json({ ok: true }); });
+  app.post("/auth/logout", (req, res) => {
+    if (req.session?.sid) oauthSessions.delete(req.session.sid);
+    req.session = null;
+    res.json({ ok: true });
+  });
   app.get("/api/me", auth, (req, res) => res.json({ user: req.session.user }));
   app.get("/api/guilds", auth, async (req, res) => {
-    const results = await Promise.all([...client.guilds.cache.values()].map(async g => {
-      if (!await canManage(g, req.session.user.id)) return null;
-      return { id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), memberCount: g.memberCount };
-    }));
-    const guilds = results.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
-    res.json({ guilds });
+    try {
+      const userGuilds = await getOAuthGuilds(req);
+      const manageableIds = new Set(userGuilds.filter(item => {
+        const permissions = BigInt(item.permissions || "0");
+        return (permissions & 0x8n) === 0x8n || (permissions & 0x20n) === 0x20n;
+      }).map(item => item.id));
+      const guilds = [...client.guilds.cache.values()]
+        .filter(guild => manageableIds.has(guild.id))
+        .map(guild => ({ id: guild.id, name: guild.name, icon: guild.iconURL({ size: 64 }), memberCount: guild.memberCount }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      res.json({ guilds });
+    } catch (error) {
+      console.error("Discord guild lookup error:", error.message);
+      res.status(401).json({ error: "No se pudieron consultar tus servidores. Vuelve a iniciar sesión con Discord." });
+    }
   });
   app.get("/api/guilds/:id/config", auth, async (req, res) => {
     const guild = client.guilds.cache.get(req.params.id);
-    if (!guild || !await canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
+    if (!guild || !await canManage(guild.id, req)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
     res.json({ config: getGuildConfig(guild.id), channels: guild.channels.cache.filter(c => c.isTextBased()).map(c => ({ id: c.id, name: c.name })) , roles: guild.roles.cache.filter(r => !r.managed && r.id !== guild.id).map(r => ({ id: r.id, name: r.name })) });
   });
   app.put("/api/guilds/:id/config", auth, async (req, res) => {
     const guild = client.guilds.cache.get(req.params.id);
-    if (!guild || !await canManage(guild, req.session.user.id)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
+    if (!guild || !await canManage(guild.id, req)) return res.status(403).json({ error: "No tienes acceso a este servidor." });
     const input = req.body || {};
     const current = getGuildConfig(guild.id);
     if (input.logs) {
@@ -140,7 +202,7 @@ function createWebServer(client) {
 <footer class="footer"><div class="wrap footrow"><span><b>MONARCH</b> · Discord management</span><span>© 2026 MONARCH. Todos los derechos reservados.</span></div></footer>
 </body></html>`));
   app.get("/dashboard", (req, res) => {
-    if (!req.session?.user?.id || !allowedAdmins.has(req.session.user.id)) return res.redirect("/");
+    if (!req.session?.user?.id || !req.session?.sid || !oauthSessions.has(req.session.sid)) return res.redirect("/");
     res.type("html").send(dashboardHtml);
   });
   app.get("/health", (req, res) => res.json({ ok: true, bot: client.isReady(), uptime: process.uptime() }));
