@@ -120,7 +120,7 @@ function createWebServer(client) {
       });
       req.session = {
         sid: sessionId,
-        user: { id: user.id, username: user.username, global_name: user.global_name || user.username, avatar: user.avatar }
+        user: { id: user.id, username: user.username, global_name: user.global_name || user.username }
       };
       res.redirect("/dashboard");
     } catch (err) {
