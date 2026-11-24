@@ -49,4 +49,4 @@ async function handleWelcome(interaction){
  if(sub==="status")return interaction.reply({content:["**Estado:** "+(w.enabled?"Activado":"Desactivado"),"**Canal:** "+(w.channelId?"<#"+w.channelId+">":"Sin configurar"),"**Formato:** "+(w.style==="v2"?"Components V2":"Embed clásico"),"**Color:** "+(w.color||"#D6A84B"),"**Imagen:** "+(w.image?"Configurada":"No configurada"),"**Miniatura:** "+(w.thumbnail?"Configurada":"No configurada")].join("\n"),ephemeral:true});
  if(sub==="variables")return interaction.reply({content:"**Variables disponibles**\n{user} mención\n{username} nombre\n{server} servidor\n{membercount} miembros\n{avatar} URL del avatar",ephemeral:true});
 }
-module.exports={welcomeCommand:welcomeCommand.toJSON(),handleWelcome,sendWelcome};
+module.exports={welcomeCommand,handleWelcome,sendWelcome};
