@@ -3,6 +3,7 @@ const {
   REST, Routes, AuditLogEvent
 } = require("discord.js");
 const commands = require("../commands");
+const { handleWelcome, sendWelcome } = require("../welcome");
 const { getGuildConfig, saveGuildConfig, addWarning, getWarnings, getPrefixState, savePrefixState } = require("../storage");
 
 const client = new Client({
@@ -74,16 +75,7 @@ client.once("ready", async () => {
 
 client.on("guildMemberAdd", async member => {
   const config = getGuildConfig(member.guild.id);
-  if (config.welcome.enabled && config.welcome.channelId) {
-    const channel = member.guild.channels.cache.get(config.welcome.channelId);
-    if (channel?.isTextBased()) {
-      const text = render(config.welcome.message, member);
-      const embed = config.welcome.embed
-        ? new EmbedBuilder().setColor(0xD62828).setDescription(text).setThumbnail(member.user.displayAvatarURL()).setTimestamp()
-        : null;
-      channel.send(embed ? { embeds: [embed] } : { content: text }).catch(() => {});
-    }
-  }
+  if (config.welcome.enabled && config.welcome.channelId) await sendWelcome(member).catch(error => console.error("Welcome send failed:", error));
   await sendLog(member.guild, "memberJoin", "Miembro nuevo", `${member.user.tag} (${member.id})`);
   await applyRolePrefix(member);
 });
@@ -128,7 +120,7 @@ client.on("interactionCreate", async interaction => {
   const { commandName, guild, member } = interaction;
   try {
     if (commandName === "ping") return interaction.reply({ content: `Pong: ${client.ws.ping} ms`, ephemeral: true });
-    if (commandName === "help") return interaction.reply({ content: "**MONARCH**\n/ping · /clear · /kick · /ban · /timeout · /warn · /warnings · /prefix · /logs · /welcome\nConfigura más funciones desde el panel web.", ephemeral: true });
+    if (commandName === "help") return interaction.reply({ content: "**MONARCH**\n/ping · /clear · /kick · /ban · /timeout · /warn · /warnings · /prefix · /logs · /welcome\nConfigura MONARCH con comandos slash.", ephemeral: true });
     if (!guild) return interaction.reply({ content: "Este comando solo funciona en servidores.", ephemeral: true });
 
     if (commandName === "clear") {
@@ -193,14 +185,7 @@ client.on("interactionCreate", async interaction => {
       saveGuildConfig(guild.id, config);
       return interaction.reply({ content: "Canal de logs configurado. Puedes activar o desactivar eventos desde el panel.", ephemeral: true });
     }
-    if (commandName === "welcome") {
-      const config = getGuildConfig(guild.id);
-      config.welcome.enabled = interaction.options.getBoolean("activar");
-      const channel = interaction.options.getChannel("canal");
-      if (channel) config.welcome.channelId = channel.id;
-      saveGuildConfig(guild.id, config);
-      return interaction.reply({ content: `Bienvenidas ${config.welcome.enabled ? "activadas" : "desactivadas"}.`, ephemeral: true });
-    }
+    if (commandName === "welcome") return handleWelcome(interaction);
   } catch (error) {
     console.error("Command error:", error);
     const payload = { content: "Ocurrió un error al ejecutar el comando. Revisa permisos y jerarquía de roles.", ephemeral: true };
