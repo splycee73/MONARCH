@@ -4,10 +4,12 @@ const path = require("node:path");
 const root = path.resolve(process.env.CONFIG_DIR || "./data");
 const guildDir = path.join(root, "guilds");
 const warningDir = path.join(root, "warnings");
+const prefixDir = path.join(root, "prefixes");
 
 function ensureDirs() {
   fs.mkdirSync(guildDir, { recursive: true });
   fs.mkdirSync(warningDir, { recursive: true });
+  fs.mkdirSync(prefixDir, { recursive: true });
 }
 
 function defaults(guildId) {
@@ -56,10 +58,18 @@ function getWarnings(guildId) {
   ensureDirs();
   return readJson(path.join(warningDir, guildId + ".json"), []);
 }
+function getPrefixState(guildId) {
+  ensureDirs();
+  return readJson(path.join(prefixDir, guildId + ".json"), {});
+}
+function savePrefixState(guildId, state) {
+  writeJson(path.join(prefixDir, guildId + ".json"), state);
+  return state;
+}
 function addWarning(guildId, warning) {
   const warnings = getWarnings(guildId);
   warnings.push({ id: Date.now().toString(36), createdAt: new Date().toISOString(), ...warning });
   writeJson(path.join(warningDir, guildId + ".json"), warnings);
   return warnings.at(-1);
 }
-module.exports = { ensureDirs, getGuildConfig, saveGuildConfig, getWarnings, addWarning };
+module.exports = { ensureDirs, getGuildConfig, saveGuildConfig, getWarnings, addWarning, getPrefixState, savePrefixState };
