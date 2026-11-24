@@ -74,13 +74,15 @@ client.once("clientReady", async () => {
   } catch (error) { console.error("Command registration failed:", error); }
 });
 
-client.on("guildMemberAdd", async member => {\n  updateMemberPresence();
+client.on("guildMemberAdd", async member => {
+  updateMemberPresence();
   const config = getGuildConfig(member.guild.id);
   if (config.welcome.enabled && config.welcome.channelId) await sendWelcome(member).catch(error => console.error("Welcome send failed:", error));
   await sendLog(member.guild, "memberJoin", "Miembro nuevo", `${member.user.tag} (${member.id})`);
   await applyRolePrefix(member);
 });
-client.on("guildMemberRemove", async member => {\n  updateMemberPresence();
+client.on("guildMemberRemove", async member => {
+  updateMemberPresence();
   const config = getGuildConfig(member.guild.id);
   if (config.goodbye?.enabled && config.goodbye.channelId) {
     const channel = member.guild.channels.cache.get(config.goodbye.channelId);
@@ -198,7 +200,8 @@ client.on("interactionCreate", async interaction => {
     }
     if (commandName === "welcome") return handleWelcome(interaction);
   } catch (error) {
-    if (error?.code === 10062) { console.warn("Interacción caducada antes de poder confirmarla."); return; }\n    console.error("Command error:", error);
+    if (error?.code === 10062) { console.warn("Interacción caducada antes de poder confirmarla."); return; }
+    console.error("Command error:", error);
     const payload = { content: "Ocurrió un error al ejecutar el comando. Revisa permisos y jerarquía de roles." };
     if (interaction.deferred || interaction.replied) return interaction.editReply(payload).catch(() => {});
     return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
