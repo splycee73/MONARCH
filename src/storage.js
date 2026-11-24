@@ -20,7 +20,7 @@ function defaults(guildId) {
       channelCreate: true, channelDelete: true, channelUpdate: true,
       voiceStateUpdate: true, guildUpdate: true, moderation: true
     }},
-    welcome: { enabled: false, channelId: null, message: "¡Bienvenido {user} a **{server}**! Ahora somos {membercount} miembros.", embed: true },
+    welcome: { enabled: false, channelId: null, message: "¡Bienvenido {user} a **{server}**! Ahora somos {membercount} miembros.", style: "classic", title: "¡Tenemos un nuevo miembro!", color: "#D6A84B", image: null, thumbnail: null },
     goodbye: { enabled: false, channelId: null, message: "{username} ha salido de {server}." },
     moderation: { modLogChannelId: null, dmOnAction: true },
     updatedAt: new Date().toISOString()
