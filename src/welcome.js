@@ -37,7 +37,7 @@ async function sendWelcome(member,options={}){
 }
 async function handleWelcome(interaction){
  const config=getGuildConfig(interaction.guild.id),w=config.welcome,sub=interaction.options.getSubcommand();
- if(sub==="setup"){w.channelId=interaction.options.getChannel("canal").id;w.enabled=true;saveGuildConfig(interaction.guild.id,config);return interaction.reply({content:"Bienvenidas activadas en <#"+w.channelId+">. Usa /welcome test para probar.",ephemeral:true});}
+ if(sub==="setup"){w.channelId=interaction.options.getChannel("canal").id;w.enabled=true;saveGuildConfig(interaction.guild.id,config);return interaction.editReply({content:"Bienvenidas activadas en <#"+w.channelId+">. Usa /welcome test para probar.",flags:MessageFlags.Ephemeral});}
  if(sub==="disable"){w.enabled=false;saveGuildConfig(interaction.guild.id,config);return interaction.reply({content:"Bienvenidas desactivadas.",ephemeral:true});}
  if(sub==="style"){w.style=interaction.options.getString("tipo");saveGuildConfig(interaction.guild.id,config);return interaction.reply({content:"Formato actualizado: "+(w.style==="v2"?"Components V2":"Embed clásico")+".",ephemeral:true});}
  if(sub==="message"){w.message=interaction.options.getString("texto");saveGuildConfig(interaction.guild.id,config);return interaction.reply({content:"Mensaje actualizado.",ephemeral:true});}
