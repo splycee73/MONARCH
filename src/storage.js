@@ -1,6 +1,19 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const DEFAULT_WELCOME_CHANNEL = "1574445237206515752";
+const DEFAULT_WELCOME_MESSAGE = [
+  "<:30053darkmodeids:1574439368771502120> `:` Bienvenido {user}",
+  "",
+  "<:13163notificationids:1574439452707782666> Nos alegra tenerte en {server}.",
+  "Ahora formas parte de nuestra comunidad.",
+  "",
+  "<:86863verifiedmembersids:1574439427558604830>  Usuario: {username}",
+  "<:74190networkids:1574439408776515766>  Miembros: {membercount}",
+  "",
+  "> ¡Disfruta tu estadía y pásala genial!"
+].join("\n");
+
 const root = path.resolve(process.env.CONFIG_DIR || "./data");
 const guildDir = path.join(root, "guilds");
 const warningDir = path.join(root, "warnings");
@@ -22,7 +35,7 @@ function defaults(guildId) {
       channelCreate: true, channelDelete: true, channelUpdate: true,
       voiceStateUpdate: true, guildUpdate: true, moderation: true
     }},
-    welcome: { enabled: false, channelId: null, message: "¡Bienvenido {user} a **{server}**! Ahora somos {membercount} miembros.", style: "classic", title: "¡Tenemos un nuevo miembro!", color: "#D6A84B", image: null, thumbnail: null },
+    welcome: { enabled: true, channelId: DEFAULT_WELCOME_CHANNEL, message: DEFAULT_WELCOME_MESSAGE, style: "classic", title: null, color: "#5865F2", image: null, thumbnail: null },
     goodbye: { enabled: false, channelId: null, message: "{username} ha salido de {server}." },
     moderation: { modLogChannelId: null, dmOnAction: true },
     updatedAt: new Date().toISOString()
@@ -44,10 +57,23 @@ function writeJson(file, value) {
 function guildFile(id) { return path.join(guildDir, id + ".json"); }
 function getGuildConfig(id) {
   ensureDirs();
-  return { ...defaults(id), ...readJson(guildFile(id), {}), logs: {
-    ...defaults(id).logs, ...(readJson(guildFile(id), {}).logs || {}),
-    events: { ...defaults(id).logs.events, ...((readJson(guildFile(id), {}).logs || {}).events || {}) }
-  }};
+  const base = defaults(id);
+  const saved = readJson(guildFile(id), {});
+  const config = { ...base, ...saved, logs: {
+    ...base.logs, ...(saved.logs || {}),
+    events: { ...base.logs.events, ...((saved.logs || {}).events || {}) }
+  }, welcome: { ...base.welcome, ...(saved.welcome || {}) } };
+
+  // Migrate installations that still have the old empty welcome defaults.
+  if (!config.welcome.channelId) {
+    config.welcome.enabled = true;
+    config.welcome.channelId = DEFAULT_WELCOME_CHANNEL;
+    config.welcome.message = DEFAULT_WELCOME_MESSAGE;
+    config.welcome.style = "classic";
+    config.welcome.title = null;
+    config.welcome.color = "#5865F2";
+  }
+  return config;
 }
 function saveGuildConfig(id, config) {
   const value = { ...config, guildId: id, updatedAt: new Date().toISOString() };
