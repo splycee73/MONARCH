@@ -2,14 +2,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const DEFAULT_WELCOME_CHANNEL = "1574445237206515752";
+const DEFAULT_WELCOME_GIF = "https://i.pinimg.com/originals/dc/3e/cd/dc3ecdab0fa15f3bd29d1e20718648e6.gif";
 const DEFAULT_WELCOME_MESSAGE = [
   "<:30053darkmodeids:1574439368771502120> `:` Bienvenido {user}",
   "",
-  "<:13163notificationids:1574439452707782666> Nos alegra tenerte en {server}.",
+  "<:13163notificationids:1574439452707782666> **Nos alegra tenerte en {server}.**",
   "Ahora formas parte de nuestra comunidad.",
   "",
-  "<:86863verifiedmembersids:1574439427558604830>  Usuario: {username}",
-  "<:74190networkids:1574439408776515766>  Miembros: {membercount}",
+  "<:86863verifiedmembersids:1574439427558604830>  **Usuario:** {username}",
+  "<:74190networkids:1574439408776515766>  **Miembros:** {membercount}",
   "",
   "> ¡Disfruta tu estadía y pásala genial!"
 ].join("\n");
@@ -35,7 +36,7 @@ function defaults(guildId) {
       channelCreate: true, channelDelete: true, channelUpdate: true,
       voiceStateUpdate: true, guildUpdate: true, moderation: true
     }},
-    welcome: { enabled: true, channelId: DEFAULT_WELCOME_CHANNEL, message: DEFAULT_WELCOME_MESSAGE, style: "classic", title: null, color: "#5865F2", image: null, thumbnail: null },
+    welcome: { enabled: true, channelId: DEFAULT_WELCOME_CHANNEL, message: DEFAULT_WELCOME_MESSAGE, style: "classic", title: null, color: "#5865F2", image: DEFAULT_WELCOME_GIF, thumbnail: null },
     goodbye: { enabled: false, channelId: null, message: "{username} ha salido de {server}." },
     moderation: { modLogChannelId: null, dmOnAction: true },
     updatedAt: new Date().toISOString()
@@ -72,6 +73,10 @@ function getGuildConfig(id) {
     config.welcome.style = "classic";
     config.welcome.title = null;
     config.welcome.color = "#5865F2";
+  }
+  // Use the preset animation for existing configurations without a welcome image.
+  if (config.welcome.image === null || config.welcome.image === undefined) {
+    config.welcome.image = DEFAULT_WELCOME_GIF;
   }
   return config;
 }
