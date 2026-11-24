@@ -80,7 +80,7 @@ function createWebServer(client) {
     const permissions = BigInt(membership.permissions || "0");
     const ADMINISTRATOR = 0x8n;
     const MANAGE_GUILD = 0x20n;
-    return (permissions & ADMINISTRATOR) === ADMINISTRATOR || (permissions & MANAGE_GUILD) === MANAGE_GUILD;
+    return Boolean(membership.owner) || (permissions & ADMINISTRATOR) === ADMINISTRATOR || (permissions & MANAGE_GUILD) === MANAGE_GUILD;
   }
 
   const redirectUri = `${dashboardUrl}/auth/callback`;
@@ -139,7 +139,7 @@ function createWebServer(client) {
       const userGuilds = await getOAuthGuilds(req);
       const manageableIds = new Set(userGuilds.filter(item => {
         const permissions = BigInt(item.permissions || "0");
-        return (permissions & 0x8n) === 0x8n || (permissions & 0x20n) === 0x20n;
+        return Boolean(item.owner) || (permissions & 0x8n) === 0x8n || (permissions & 0x20n) === 0x20n;
       }).map(item => item.id));
       const guilds = [...client.guilds.cache.values()]
         .filter(guild => manageableIds.has(guild.id))
