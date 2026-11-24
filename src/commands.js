@@ -37,10 +37,7 @@ const commands = [
   new SlashCommandBuilder().setName("logs").setDescription("Configura el canal de registros.")
     .addChannelOption(o => o.setName("canal").setDescription("Canal para los registros").addChannelTypes(ChannelType.GuildText).setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-  new SlashCommandBuilder().setName("welcome").setDescription("Activa o desactiva las bienvenidas.")
-    .addBooleanOption(o => o.setName("activar").setDescription("Estado de las bienvenidas").setRequired(true))
-    .addChannelOption(o => o.setName("canal").setDescription("Canal de bienvenida").addChannelTypes(ChannelType.GuildText))
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  require("./welcome").welcomeCommand
 ].map(command => command.toJSON());
 
 module.exports = commands;
