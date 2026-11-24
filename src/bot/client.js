@@ -1,5 +1,5 @@
 const {
-  Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionFlagsBits,
+  Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionFlagsBits, ActivityType,
   REST, Routes, AuditLogEvent, MessageFlags
 } = require("discord.js");
 const commands = require("../commands");
@@ -65,7 +65,7 @@ async function logModeration(guild, text) {
 }
 
 client.once("clientReady", async () => {
-  console.log(`MONARCH online as ${client.user.tag}`);
+  console.log(`MONARCH online as ${client.user.tag}`);\n  updateMemberPresence();
   try {
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
@@ -73,13 +73,13 @@ client.once("clientReady", async () => {
   } catch (error) { console.error("Command registration failed:", error); }
 });
 
-client.on("guildMemberAdd", async member => {
+client.on("guildMemberAdd", async member => {\n  updateMemberPresence();
   const config = getGuildConfig(member.guild.id);
   if (config.welcome.enabled && config.welcome.channelId) await sendWelcome(member).catch(error => console.error("Welcome send failed:", error));
   await sendLog(member.guild, "memberJoin", "Miembro nuevo", `${member.user.tag} (${member.id})`);
   await applyRolePrefix(member);
 });
-client.on("guildMemberRemove", async member => {
+client.on("guildMemberRemove", async member => {\n  updateMemberPresence();
   const config = getGuildConfig(member.guild.id);
   if (config.goodbye?.enabled && config.goodbye.channelId) {
     const channel = member.guild.channels.cache.get(config.goodbye.channelId);
@@ -115,7 +115,7 @@ client.on("guildAuditLogEntryCreate", (entry, guild) => {
   sendLog(guild, "moderation", "Evento de auditoría", `Acción: ${entry.action}\nAutor: ${actor}\nObjetivo: ${entry.target?.tag || entry.target?.name || entry.targetId || "No disponible"}\nMotivo: ${entry.reason || "No indicado"}`);
 });
 
-client.on("interactionCreate", async interaction => {
+client.on("guildCreate", () => updateMemberPresence());\nclient.on("guildDelete", () => updateMemberPresence());\n\nfunction updateMemberPresence() {\n  if (!client.user) return;\n  const total = client.guilds.cache.reduce((sum, guild) => sum + (guild.memberCount || 0), 0);\n  client.user.setActivity(`${total.toLocaleString("es-ES")} miembros`, { type: ActivityType.Watching });\n}\n\nclient.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, guild, member } = interaction;
   try {
@@ -188,7 +188,7 @@ client.on("interactionCreate", async interaction => {
     }
     if (commandName === "welcome") return handleWelcome(interaction);
   } catch (error) {
-    console.error("Command error:", error);
+    if (error?.code === 10062) { console.warn("Interacción caducada antes de poder confirmarla."); return; }\n    console.error("Command error:", error);
     const payload = { content: "Ocurrió un error al ejecutar el comando. Revisa permisos y jerarquía de roles." };
     if (interaction.deferred || interaction.replied) return interaction.editReply(payload).catch(() => {});
     return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
